@@ -1,7 +1,7 @@
 --[[
 The MIT License (MIT)
 
-Copyright (c) 2015 Regan Daniel Laitila
+Copyright (c) 2016 Regan Daniel Laitila
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,54 +23,66 @@ SOFTWARE.
 ]]
 
 --
--- Our Namespace object
+-- Namespace provides a defered require mechanism on tables. Each table key 
+-- can contain any value on assignment, with the special case that when assigning 
+-- a string value to a table key, that table key (the string value) indicates a lua
+-- package path to require when that key is accessed.
 --
-local namespace = {}
+local Namespace = {}
 
 --
--- Our NamespaceMetatable
+-- Global to local references for performance
 --
-local NamespaceMetatable = {}
+local package = package
+local rawset = rawset
+local require = require
+local setmetatable = setmetatable
+local type = type
 
 --
--- NamespaceMetatable __index
+-- __call creates a new namespace
 --
-function NamespaceMetatable:__index(KEY)
-    if KEY == '_keys' then
-        return rawget(self, '_keys')
+function Namespace:__call(base)    
+    return setmetatable({__keys={};__base=base}, Namespace)    
+end
+
+--
+-- __index indicates that the namespace key does not yet
+-- exist on the table, thus it must be required
+--
+function Namespace:__index(k)       
+    local key = self.__keys[k]
+    
+    if key == nil then return end
+    
+    local r = require(self.__base.."."..key)
+    
+    rawset(self, k, r)
+    
+    return r
+end
+
+--
+-- __newindex will assign the value to the table key 
+-- if it is any value other than a string, in which case
+-- it will be added to our __keys for deferred require
+--
+function Namespace:__newindex(k, v)
+    local t = type(v)
+    
+    if t ~= 'string' then
+        rawset(self, k, v)
+        return
     end
     
-    if type(rawget(self, '_keys')[KEY]) == 'function' then
-        return rawget(self, '_keys')[KEY]
-    elseif package.loaded[rawget(self, '_keys')[KEY]] ~= nil then
-        return package.loaded[rawget(self, '_keys')[KEY]]
-    else
-        return require(rawget(self, '_keys')[KEY])
-    end
+    self.__keys[k] = v
+end
+
+function Namespace.base(path)
+    return select('1', path):gsub("%.-init$", "")
 end
 
 --
--- NamespaceMetatable __newindex
+-- :D
 --
-function NamespaceMetatable:__newindex(KEY, VALUE)
-    rawget(self, '_keys')[KEY] = VALUE
-end
-
---
--- NamespaceMetatable __call
---
-function NamespaceMetatable:__call()
-    local instance = {_keys = {}}
-    setmetatable(instance, NamespaceMetatable)
-    return instance
-end
-
---
--- Set NamespaceObject Metatable
---
-setmetatable(namespace, NamespaceMetatable)
-
---
--- Return Namespace
---
-return namespace
+return setmetatable(Namespace, Namespace)
